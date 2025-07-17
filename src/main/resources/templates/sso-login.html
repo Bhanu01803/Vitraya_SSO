@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSO Login - VITRAYA</title>
+    <style>
+        body {
+            font-family: 'Nunito', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #20B2AA 100%);
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo img {
+            max-width: 200px;
+            height: auto;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #5a6fd8;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .otp-section {
+            display: none;
+        }
+
+        .otp-section.show {
+            display: block;
+        }
+
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+            display: none;
+        }
+
+        .message.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .message.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .resend-otp {
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        .resend-otp a {
+            color: #667eea;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .resend-otp a:hover {
+            text-decoration: underline;
+        }
+
+        .resend-otp a:disabled {
+            color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .manual-redirect {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .manual-redirect p {
+            margin-bottom: 10px;
+        }
+
+        .btn-success {
+            background-color: #28a745;
+        }
+
+        .btn-success:hover {
+            background-color: #218838;
+        }
+
+        .btn-warning {
+            background-color: #ffc107;
+            color: #212529;
+        }
+
+        .btn-warning:hover {
+            background-color: #e0a800;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+
+        .test-section {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .test-section button {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="login-container">
+    <div class="logo">
+        <h2>VITRAYA</h2>
+        <p>SSO Login</p>
+    </div>
+
+    <div id="message" class="message" style="display: none;"></div>
+
+    <div id="manualRedirect" class="manual-redirect" style="display: none;">
+        <p>Login successful! If you're not automatically redirected, click the button below:</p>
+        <button type="button" onclick="manualRedirect()" class="btn btn-success">Go to Application</button>
+    </div>
+
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="mobileNumber">Mobile Number</label>
+            <input type="tel" id="mobileNumber" name="mobileNumber"
+                   placeholder="Enter 10-digit mobile number"
+                   pattern="[0-9]{10}" maxlength="10" required>
+        </div>
+
+        <div class="otp-section" id="otpSection">
+            <div class="form-group">
+                <label for="otp">OTP</label>
+                <input type="text" id="otp" name="otp"
+                       placeholder="Enter 6-digit OTP"
+                       pattern="[0-9]{6}" maxlength="6">
+            </div>
+
+            <div class="resend-otp">
+                <a href="#" id="resendOtp">Resend OTP</a>
+                <span id="timer" style="display: none;"> (<span id="countdown">60</span>s)</span>
+            </div>
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn">Send OTP</button>
+    </form>
+</div>
+
+<script>
+    const API_BASE_URL = 'http://localhost:8081/api/v1/user';
+    let countdownInterval;
+
+    document.getElementById('loginForm').addEventListener('submit', handleSubmit);
+    document.getElementById('resendOtp').addEventListener('click', handleResendOtp);
+
+    function showMessage(message, type = 'success') {
+        const messageDiv = document.getElementById('message');
+        messageDiv.textContent = message;
+        messageDiv.className = `message ${type}`;
+        messageDiv.style.display = 'block';
+        setTimeout(() => {
+            messageDiv.style.display = 'none';
+        }, 5000);
+    }
+
+    function startCountdown() {
+        let countdown = 60;
+        const timerSpan = document.getElementById('timer');
+        const countdownSpan = document.getElementById('countdown');
+        const resendLink = document.getElementById('resendOtp');
+        timerSpan.style.display = 'inline';
+        resendLink.style.pointerEvents = 'none';
+        resendLink.style.color = '#ccc';
+        countdownInterval = setInterval(() => {
+            countdown--;
+            countdownSpan.textContent = countdown;
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                timerSpan.style.display = 'none';
+                resendLink.style.pointerEvents = 'auto';
+                resendLink.style.color = '#667eea';
+            }
+        }, 1000);
+    }
+
+    function getPartnerAccessToken() {
+        return localStorage.getItem('partner_accessToken') || '';
+    }
+
+    async function handleSubmit(e) {
+        e.preventDefault();
+        const mobileNumber = document.getElementById('mobileNumber').value;
+        const otp = document.getElementById('otp').value;
+        const submitBtn = document.getElementById('submitBtn');
+        const otpSection = document.getElementById('otpSection');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Processing...';
+        try {
+            if (!otp) {
+                // Send OTP
+                const response = await fetch(`${API_BASE_URL}/send-otp`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ mobileNumber })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('OTP sent successfully!');
+                    otpSection.classList.add('show');
+                    submitBtn.textContent = 'Verify OTP';
+                    document.getElementById('otp').required = true;
+                    startCountdown();
+                } else {
+                    showMessage(result.message || 'Failed to send OTP', 'error');
+                }
+            } else {
+                // Verify OTP
+                const response = await fetch(`${API_BASE_URL}/verify-otp`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ mobileNumber, otp })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('Login successful! Redirecting...');
+                    document.getElementById('loginForm').style.display = 'none';
+                    document.getElementById('manualRedirect').style.display = 'block';
+                    setTimeout(() => {
+                        window.location.href = 'http://localhost:4200/check/session';
+                    }, 1500);
+                } else {
+                    showMessage(result.message || 'Invalid OTP', 'error');
+                }
+            }
+        } catch (error) {
+            showMessage('Network error. Please try again.', 'error');
+        } finally {
+            submitBtn.disabled = false;
+        }
+    }
+
+    async function handleResendOtp(e) {
+        e.preventDefault();
+        const mobileNumber = document.getElementById('mobileNumber').value;
+        const resendLink = document.getElementById('resendOtp');
+        if (!mobileNumber) {
+            showMessage('Please enter mobile number first', 'error');
+            return;
+        }
+        resendLink.style.pointerEvents = 'none';
+        resendLink.textContent = 'Sending...';
+        try {
+            const response = await fetch(`${API_BASE_URL}/send-otp`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ mobileNumber })
+            });
+            const result = await response.json();
+            if (result.success) {
+                showMessage('OTP resent successfully!');
+                startCountdown();
+            } else {
+                showMessage(result.message || 'Failed to resend OTP', 'error');
+            }
+        } catch (error) {
+            showMessage('Network error. Please try again.', 'error');
+        } finally {
+            resendLink.textContent = 'Resend OTP';
+        }
+    }
+
+    function manualRedirect() {
+        window.location.href = 'http://localhost:4200/check/session';
+    }
+</script>
+</body>
+</html>
