@@ -1,20 +1,25 @@
 package org.example.vitraya_sso_token.model;
 
-import lombok.Data;
+import jakarta.persistence.*;
 
-@Data
+@Entity
+@Table(name = "webtokens")
 public class WebToken {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
     private String token;
     private String refreshToken;
-    private String expiryat;
+    private String expiryAt;
 
     // Getters and setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
     public String getToken() { return token; }
     public void setToken(String token) { this.token = token; }
-
     public String getRefreshToken() { return refreshToken; }
     public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
-
-    public String getExpiryat() { return expiryat; }
-    public void setExpiryat(String expiryat) { this.expiryat = expiryat; }
+    public String getExpiryAt() { return expiryAt; }
+    public void setExpiryAt(String expiryAt) { this.expiryAt = expiryAt; }
 }

@@ -8,6 +8,8 @@ import org.example.vitraya_sso_token.model.RestApiResponse;
 import org.example.vitraya_sso_token.model.SessionData;
 import org.example.vitraya_sso_token.model.ValidateTokenRequest;
 import org.example.vitraya_sso_token.model.SsoApiCallResponse;
+import org.example.vitraya_sso_token.repository.SessionRepository;
+import org.example.vitraya_sso_token.repository.WebTokenRepository;
 import org.example.vitraya_sso_token.service.JwtService;
 import org.example.vitraya_sso_token.service.OtpService;
 import org.example.vitraya_sso_token.service.SessionService;
@@ -41,6 +43,9 @@ public class AuthController {
 
     @Autowired
     private SessionService sessionService;
+    
+    @Autowired
+    private WebTokenRepository webTokenRepository;
 
     @Autowired
     private SsoService ssoService;
@@ -160,34 +165,101 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<String>> logout(HttpServletResponse response) {
+    public ResponseEntity<SsoApiCallResponse> logout(HttpServletRequest request, HttpServletResponse response) {
+        SsoApiCallResponse ssoApiResponse = new SsoApiCallResponse();
+        SsoApiCallResponse.Result result = new SsoApiCallResponse.Result();
+
         try {
-            // Clear token cookie
-            Cookie tokenCookie = new Cookie("token", "");
+            // Get the token from the Authorization header to invalidate the session
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                String accessToken = authHeader.substring(7);
+
+                webTokenRepository.findByToken(accessToken).ifPresent(webToken -> {
+                    webTokenRepository.delete(webToken);
+                });
+            }
+
+            // Clear all relevant cookies from the browser
+            Cookie tokenCookie = new Cookie("partner_accessToken", null);
             tokenCookie.setPath("/");
-            tokenCookie.setHttpOnly(false);
             tokenCookie.setMaxAge(0);
             response.addCookie(tokenCookie);
 
-            // Clear session cookie
-            Cookie sessionCookie = new Cookie("session", "");
+            Cookie sessionCookie = new Cookie("session", null);
             sessionCookie.setPath("/");
-            sessionCookie.setHttpOnly(true);
             sessionCookie.setMaxAge(0);
             response.addCookie(sessionCookie);
-
-            // Clear refresh token cookie
-            Cookie refreshCookie = new Cookie("partner_refreshToken", "");
+            
+            Cookie refreshCookie = new Cookie("partner_refreshToken", null);
             refreshCookie.setPath("/");
-            refreshCookie.setHttpOnly(false);
             refreshCookie.setMaxAge(0);
             response.addCookie(refreshCookie);
 
-        
+            // Construct the successful response
+            ssoApiResponse.setStatusCode("200");
+            ssoApiResponse.setStatusDescription("Success");
+            result.setStatus("Logged out successfully.");
+            result.setIsActive(false); // The session is no longer active
+            ssoApiResponse.setResults(List.of(result));
+            
+            return ResponseEntity.ok(ssoApiResponse);
 
-            return ResponseEntity.ok(new ApiResponse<>(true, "Logged out successfully", "User logged out"));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(new ApiResponse<>(false, null, "Logout failed: " + e.getMessage()));
+            ssoApiResponse.setStatusCode("500");
+            ssoApiResponse.setStatusDescription("Logout failed");
+            result.setStatus("Logout failed: " + e.getMessage());
+            ssoApiResponse.setResults(List.of(result));
+            return ResponseEntity.status(500).body(ssoApiResponse);
+        }
+    }
+
+    @PostMapping("/generate-token")
+    public ResponseEntity<SsoApiCallResponse> generateToken(@RequestBody Map<String, String> request) {
+        String refreshToken = request.get("refreshToken");
+        SsoApiCallResponse response = new SsoApiCallResponse();
+        SsoApiCallResponse.Result result = new SsoApiCallResponse.Result();
+
+        // Check for missing or malformed refresh token
+        if (refreshToken == null || refreshToken.trim().isEmpty()) {
+            response.setStatusCode("400");
+            result.setIsActive(false);
+            result.setStatus("Refresh token is missing or empty.");
+            result.setToken(null);
+            response.setResults(List.of(result));
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        try {
+            String mobileNumber = jwtService.extractUsername(refreshToken);
+            
+            // Validate the refresh token. Note: The refresh token itself should have a long expiry.
+            if (jwtService.validateToken(refreshToken, mobileNumber)) {
+                // If the refresh token is valid, generate a new short-lived access token.
+                String newAccessToken = jwtService.generateToken(mobileNumber);
+                
+                response.setStatusCode("200");
+                result.setIsActive(true);
+                result.setStatus("Successfully generated new access token.");
+                result.setToken(newAccessToken);
+                // Optionally, include user details as you do in other endpoints
+                result.setSsoId(mobileNumber);
+                result.setUsername("user_" + mobileNumber);
+            } else {
+                response.setStatusCode("401");
+                result.setIsActive(false);
+                result.setStatus("Invalid or expired refresh token.");
+                result.setToken(null);
+            }
+            response.setResults(List.of(result));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            response.setStatusCode("401");
+            result.setIsActive(false);
+            result.setStatus("Invalid refresh token: " + e.getMessage());
+            result.setToken(null);
+            response.setResults(List.of(result));
+            return ResponseEntity.status(401).body(response);
         }
     }
 
@@ -321,47 +393,4 @@ public class AuthController {
             return ResponseEntity.status(500).body(response);
         }
     }
-
-    @PostMapping("/generate-token")
-    public ResponseEntity<SsoApiCallResponse> generateToken(@RequestBody Map<String, String> request) {
-        String refreshToken = request.get("refreshToken");
-        String ssoClientId = request.get("ssoClientId");
-        SsoApiCallResponse response = new SsoApiCallResponse();
-        SsoApiCallResponse.Result result = new SsoApiCallResponse.Result();
-
-        // Check for missing or malformed refresh token
-        if (refreshToken == null || refreshToken.trim().isEmpty() || refreshToken.chars().filter(ch -> ch == '.').count() != 2) {
-            response.setStatusCode("400");
-            result.setIsActive(false);
-            result.setStatus("Refresh token is missing, empty, or not a valid JWT.");
-            result.setToken(null);
-            response.setResults(List.of(result));
-            return ResponseEntity.badRequest().body(response);
-        }
-        try {
-            String mobileNumber = jwtService.extractUsername(refreshToken);
-            String newToken = jwtService.refreshToken(refreshToken);
-            if (mobileNumber != null && newToken != null) {
-                response.setStatusCode("200");
-                result.setIsActive(true);
-                result.setStatus("Successfully generated access token using refresh token.");
-                result.setToken(newToken);
-            } else {
-                response.setStatusCode("401");
-                result.setIsActive(false);
-                result.setStatus("Invalid or expired refresh token.");
-                result.setToken(null);
-            }
-            response.setResults(List.of(result));
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            response.setStatusCode("500");
-            result.setIsActive(false);
-            result.setStatus("Token generation failed: " + e.getMessage());
-            result.setToken(null);
-            response.setResults(List.of(result));
-            return ResponseEntity.status(500).body(response);
-        }
-    }
-
 }

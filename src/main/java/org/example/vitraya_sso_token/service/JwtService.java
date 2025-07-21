@@ -22,21 +22,27 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private Long expiration;
 
+    @Value("${jwt.refresh-token.expiration}")
+    private Long refreshExpiration;
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
     public String generateToken(String mobileNumber) {
-        Map<String, Object> claims = new HashMap<>();
-        return createToken(claims, mobileNumber);
+        return createToken(new HashMap<>(), mobileNumber, expiration);
     }
 
-    private String createToken(Map<String, Object> claims, String subject) {
+    public String generateRefreshToken(String mobileNumber) {
+        return createToken(new HashMap<>(), mobileNumber, refreshExpiration);
+    }
+
+    private String createToken(Map<String, Object> claims, String subject, Long expirationTime) {
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(subject)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
